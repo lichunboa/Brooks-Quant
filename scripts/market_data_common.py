@@ -192,6 +192,15 @@ SYMBOL_CONFIGS: tuple[SymbolConfig, ...] = (
         market_group="futures_cme",
         description="E-mini S&P 500 期货研究符号",
     ),
+    SymbolConfig(
+        symbol="SPY",
+        aliases=("SPY", "SPY US EQUITY", "SPY ETF"),
+        source="external_csv",
+        source_symbol="SPY",
+        exchange=Exchange.SMART,
+        market_group="us_equity_intraday_sparse",
+        description="SPY ETF 日内分钟研究符号",
+    ),
 )
 
 
