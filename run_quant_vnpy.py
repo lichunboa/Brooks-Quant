@@ -122,7 +122,6 @@ def collect_shadow_copies() -> list[Path]:
     shadow_candidates: list[Path] = []
     relative_targets = (
         Path("brooks_chart_app"),
-        Path("vnpy"),
         Path("vnpy_ui_patches.py"),
     )
     for site_packages in site_packages_roots:

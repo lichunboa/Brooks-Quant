@@ -801,16 +801,17 @@ def _detect_leg_equal_leg_markers(
             pullback_size = middle[2] - right[2]
             pullback_ratio = pullback_size / max(leg_size, 1e-6)
             near_ema = abs(bars[right[0]].close_price - ema_value) <= avg_range * 0.9
-            in_mm_context = False
-            if phase_name in {"震荡", "趋势交易区间"}:
-                in_mm_context = True
-            elif pullback_ratio >= 0.58:
-                in_mm_context = True
-            elif pullback_ratio >= 0.48 and near_ema:
-                in_mm_context = True
-            elif near_ema and phase_name == "宽幅通道":
-                in_mm_context = True
-            if not in_mm_context:
+            leg_context = evaluate_leg_equal_context(
+                bars=bars,
+                left=left,
+                middle=middle,
+                right=right,
+                phase_name=phase_name,
+                pullback_ratio=pullback_ratio,
+                near_ema=near_ema,
+                direction="bull",
+            )
+            if not leg_context:
                 continue
             target_price = right[2] + leg_size
             end_index = resolve_measured_move_end_index(
@@ -833,11 +834,7 @@ def _detect_leg_equal_leg_markers(
                     end_index=end_index,
                     target_price=target_price,
                     label="Leg1=Leg2↑",
-                    category=resolve_leg_equal_category(
-                        phase_name=phase_name,
-                        pullback_ratio=pullback_ratio,
-                        near_ema=near_ema,
-                    ),
+                    category=leg_context,
                 )
             )
             continue
@@ -849,16 +846,17 @@ def _detect_leg_equal_leg_markers(
             pullback_size = right[2] - middle[2]
             pullback_ratio = pullback_size / max(leg_size, 1e-6)
             near_ema = abs(bars[right[0]].close_price - ema_value) <= avg_range * 0.9
-            in_mm_context = False
-            if phase_name in {"震荡", "趋势交易区间"}:
-                in_mm_context = True
-            elif pullback_ratio >= 0.58:
-                in_mm_context = True
-            elif pullback_ratio >= 0.48 and near_ema:
-                in_mm_context = True
-            elif near_ema and phase_name == "宽幅通道":
-                in_mm_context = True
-            if not in_mm_context:
+            leg_context = evaluate_leg_equal_context(
+                bars=bars,
+                left=left,
+                middle=middle,
+                right=right,
+                phase_name=phase_name,
+                pullback_ratio=pullback_ratio,
+                near_ema=near_ema,
+                direction="bear",
+            )
+            if not leg_context:
                 continue
             target_price = right[2] - leg_size
             end_index = resolve_measured_move_end_index(
@@ -881,11 +879,7 @@ def _detect_leg_equal_leg_markers(
                     end_index=end_index,
                     target_price=target_price,
                     label="Leg1=Leg2↓",
-                    category=resolve_leg_equal_category(
-                        phase_name=phase_name,
-                        pullback_ratio=pullback_ratio,
-                        near_ema=near_ema,
-                    ),
+                    category=leg_context,
                 )
             )
 
@@ -1403,6 +1397,89 @@ def resolve_leg_equal_category(
     if near_ema:
         return "EMA配合"
     return "基础"
+
+
+def count_trend_bars_in_segment(
+    bars: list[BarData],
+    start_index: int,
+    end_index: int,
+    *,
+    direction: str,
+) -> int:
+    """统计一段走势里顺势趋势棒的数量。"""
+    count = 0
+    for index in range(max(0, start_index), min(len(bars) - 1, end_index) + 1):
+        bar = bars[index]
+        if direction == "bull" and is_bull_trend_bar(bar):
+            count += 1
+        elif direction == "bear" and is_bear_trend_bar(bar):
+            count += 1
+    return count
+
+
+def max_consecutive_trend_bars_in_segment(
+    bars: list[BarData],
+    start_index: int,
+    end_index: int,
+    *,
+    direction: str,
+) -> int:
+    """统计一段走势里最长连续顺势趋势棒。"""
+    longest = 0
+    current = 0
+    for index in range(max(0, start_index), min(len(bars) - 1, end_index) + 1):
+        bar = bars[index]
+        is_trend = (direction == "bull" and is_bull_trend_bar(bar)) or (direction == "bear" and is_bear_trend_bar(bar))
+        if is_trend:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def evaluate_leg_equal_context(
+    *,
+    bars: list[BarData],
+    left: tuple[int, str, float],
+    middle: tuple[int, str, float],
+    right: tuple[int, str, float],
+    phase_name: str,
+    pullback_ratio: float,
+    near_ema: bool,
+    direction: str,
+) -> str:
+    """只在更接近 Brooks 语境时才放行 Leg1=Leg2。"""
+    leg_bar_count = max(1, middle[0] - left[0] + 1)
+    leg_trend_count = count_trend_bars_in_segment(
+        bars,
+        left[0],
+        middle[0],
+        direction=direction,
+    )
+    leg_trend_ratio = leg_trend_count / leg_bar_count
+    max_leg_streak = max_consecutive_trend_bars_in_segment(
+        bars,
+        left[0],
+        middle[0],
+        direction=direction,
+    )
+
+    in_trade_range = phase_name in {"震荡", "趋势交易区间"}
+    deep_pullback = pullback_ratio >= 0.60
+    ema_context = near_ema and pullback_ratio >= 0.50 and phase_name in {"宽幅通道", "震荡", "趋势交易区间"}
+    weaker_leg = leg_trend_ratio <= 0.52 or max_leg_streak <= 2
+    overly_one_sided = leg_trend_ratio >= 0.64 and max_leg_streak >= 4
+
+    if in_trade_range:
+        if pullback_ratio >= 0.34 and (weaker_leg or near_ema):
+            return "交易区间内部"
+        return ""
+    if deep_pullback:
+        return "强趋势深回调"
+    if ema_context and not overly_one_sided:
+        return "EMA配合"
+    return ""
 
 
 def resolve_measured_move_end_index(

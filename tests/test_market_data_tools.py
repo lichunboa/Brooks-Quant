@@ -21,7 +21,6 @@ class MarketDataToolsTestCase(unittest.TestCase):
     def test_es_alias_is_normalized(self) -> None:
         self.assertEqual(normalize_symbol("ES1!"), "ES")
         self.assertEqual(normalize_symbol("E-mini S&P 500"), "ES")
-        self.assertEqual(normalize_symbol("SPY ETF"), "SPY")
 
     def test_generic_csv_loader_builds_bars(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

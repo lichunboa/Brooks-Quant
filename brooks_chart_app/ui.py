@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import csv
 import json
@@ -76,6 +76,14 @@ DISPLAY_INTERVAL_OPTIONS: tuple[DisplayIntervalOption, ...] = (
 DISPLAY_INTERVAL_MAP: dict[str, DisplayIntervalOption] = {
     option.key: option for option in DISPLAY_INTERVAL_OPTIONS
 }
+FOCUS_RANGE_OPTIONS: tuple[tuple[int, str], ...] = (
+    (1, "当日"),
+    (3, "近3天"),
+    (5, "近5天"),
+    (10, "近10天"),
+    (20, "近20天"),
+    (60, "近60天"),
+)
 
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent
 BACKTEST_OUTPUT_DIR: Path = ROOT_DIR / "backtests" / "output" / "ema20_h2_l2"
@@ -514,6 +522,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         self.active_topic: KnowledgeTopic | None = None
         self.active_strategy: StrategyBlueprint | None = None
         self.checked_topic_keys: set[str] = set()
+        self.pending_focus_datetime: datetime | None = None
 
         self.init_ui()
         self.init_shortcuts()
@@ -546,6 +555,24 @@ class BrooksChartManager(QtWidgets.QWidget):
         for option in DISPLAY_INTERVAL_OPTIONS:
             self.timeframe_combo.addItem(option.label, option.key)
         self.timeframe_combo.currentIndexChanged.connect(self.on_timeframe_changed)
+        default_timeframe_index = self.timeframe_combo.findData("5m")
+        if default_timeframe_index >= 0:
+            self.timeframe_combo.setCurrentIndex(default_timeframe_index)
+
+        self.focus_date_edit: QtWidgets.QDateEdit = QtWidgets.QDateEdit()
+        self.focus_date_edit.setCalendarPopup(True)
+        self.focus_date_edit.setDisplayFormat("yyyy-MM-dd")
+        self.focus_date_edit.setDate(QtCore.QDate.currentDate())
+
+        self.focus_range_combo: QtWidgets.QComboBox = AdaptiveComboBox()
+        for days, label in FOCUS_RANGE_OPTIONS:
+            self.focus_range_combo.addItem(label, days)
+
+        self.apply_focus_range_button: QtWidgets.QPushButton = QtWidgets.QPushButton("按日期加载")
+        self.apply_focus_range_button.clicked.connect(self.apply_focus_date_range)
+
+        self.focus_current_date_button: QtWidgets.QPushButton = QtWidgets.QPushButton("跳到该日")
+        self.focus_current_date_button.clicked.connect(self.focus_selected_date)
 
         self.kind_filter_combo: QtWidgets.QComboBox = AdaptiveComboBox()
         self.kind_filter_combo.addItems(["全部", "不检测", "H1", "H2", "L1", "L2", "MAG"])
@@ -752,6 +779,8 @@ class BrooksChartManager(QtWidgets.QWidget):
         form.addRow("数据集", self.dataset_combo)
         form.addRow("开始时间", self.start_edit)
         form.addRow("结束时间", self.end_edit)
+        form.addRow("目标日期", self.focus_date_edit)
+        form.addRow("日期范围", self.focus_range_combo)
         form.addRow("图表周期", self.timeframe_combo)
         form.addRow("更高周期", self.compare_timeframe_combo)
         form.addRow("最近K线数", self.bar_limit_spin)
@@ -764,6 +793,8 @@ class BrooksChartManager(QtWidgets.QWidget):
         button_box1 = QtWidgets.QHBoxLayout()
         button_box1.addWidget(self.refresh_button)
         button_box1.addWidget(self.load_button)
+        button_box1.addWidget(self.apply_focus_range_button)
+        button_box1.addWidget(self.focus_current_date_button)
 
         button_box2 = QtWidgets.QHBoxLayout()
         button_box2.addWidget(self.load_report_button)
@@ -909,6 +940,7 @@ class BrooksChartManager(QtWidgets.QWidget):
                 self.timeframe_combo.blockSignals(False)
         self.start_edit.setDateTime(to_qdatetime(get_recent_start(overview, self.bar_limit_spin.value(), self.get_selected_display_interval())))
         self.end_edit.setDateTime(to_qdatetime(overview.end))
+        self.focus_date_edit.setDate(QtCore.QDate(overview.end.year, overview.end.month, overview.end.day))
 
     def on_timeframe_changed(self, _index: int) -> None:
         if self.current_overview:
@@ -940,6 +972,42 @@ class BrooksChartManager(QtWidgets.QWidget):
         self.timeframe_combo.setCurrentIndex(index)
         self.timeframe_combo.blockSignals(False)
 
+    def get_selected_focus_days(self) -> int:
+        value = self.focus_range_combo.currentData()
+        return int(value or 1)
+
+    def apply_focus_date_range(self) -> None:
+        if not self.current_overview or not self.current_overview.start or not self.current_overview.end:
+            self.status_label.setText("当前没有可定位的数据集")
+            return
+
+        target_date = self.focus_date_edit.date().toPython()
+        start, end = build_focus_date_window(target_date, self.get_selected_focus_days())
+        overview_start = self.current_overview.start.astimezone(DB_TZ)
+        overview_end = self.current_overview.end.astimezone(DB_TZ)
+        start = max(start, overview_start)
+        end = min(end, overview_end)
+        if start > end:
+            self.pending_focus_datetime = None
+            self.status_label.setText("目标日期超出当前数据集范围")
+            return
+
+        self.start_edit.setDateTime(to_qdatetime(start))
+        self.end_edit.setDateTime(to_qdatetime(end))
+        self.pending_focus_datetime = datetime(target_date.year, target_date.month, target_date.day, 12, 0, tzinfo=DB_TZ)
+        self.load_chart()
+
+    def focus_selected_date(self) -> None:
+        if not self.current_bars:
+            self.status_label.setText("请先加载图表后再定位日期")
+            return
+
+        target_date = self.focus_date_edit.date().toPython()
+        target_dt = datetime(target_date.year, target_date.month, target_date.day, 12, 0, tzinfo=DB_TZ)
+        display_minutes = max(self.current_display_interval.minutes, 1)
+        window = max(80, min(1600, (self.get_selected_focus_days() * 24 * 60) // display_minutes))
+        self.focus_on_datetime(target_dt, window=window)
+
     def load_chart(self) -> None:
         overview: BarOverview | None = self.dataset_combo.currentData()
         if not overview or not overview.exchange or not overview.interval:
@@ -961,6 +1029,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             self.clear_bar_count_items()
             self.current_ema_values = []
             self.current_source_bars = []
+            self.pending_focus_datetime = None
             return
 
         limit = self.bar_limit_spin.value()
@@ -1009,6 +1078,11 @@ class BrooksChartManager(QtWidgets.QWidget):
         self.status_label.setText(
             f"已加载 {len(bars)} 根K线（{display_interval.label}），识别到 {len(signals)} 个程序化信号，背景：{background}。"
         )
+        if self.pending_focus_datetime is not None:
+            display_minutes = max(display_interval.minutes, 1)
+            window = max(80, min(1600, (self.get_selected_focus_days() * 24 * 60) // display_minutes))
+            self.focus_on_datetime(self.pending_focus_datetime, window=window)
+            self.pending_focus_datetime = None
 
     def load_chart_source_bars(
         self,
@@ -2743,6 +2817,15 @@ def to_qdatetime(dt: datetime) -> QtCore.QDateTime:
     aware_dt = dt.replace(tzinfo=DB_TZ) if dt.tzinfo is None else dt.astimezone(DB_TZ)
     naive_local = aware_dt.astimezone().replace(tzinfo=None)
     return QtCore.QDateTime(naive_local.year, naive_local.month, naive_local.day, naive_local.hour, naive_local.minute, naive_local.second)
+
+
+def build_focus_date_window(target_date: date, days: int) -> tuple[datetime, datetime]:
+    """按目标日期生成快速截图用的时间范围。"""
+    span_days = max(1, days)
+    start_date = target_date - timedelta(days=span_days - 1)
+    start_dt = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0, tzinfo=DB_TZ)
+    end_dt = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=DB_TZ)
+    return start_dt, end_dt
 
 
 def get_recent_start(

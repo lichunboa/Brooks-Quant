@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import unittest
 
 from brooks_chart_app.logic import (
@@ -15,7 +15,7 @@ from brooks_chart_app.logic import (
     resolve_logic_higher_timeframe_minutes,
     select_channel_geometry,
 )
-from brooks_chart_app.ui import DISPLAY_INTERVAL_MAP, aggregate_bars_to_interval, resolve_higher_timeframe_option
+from brooks_chart_app.ui import DISPLAY_INTERVAL_MAP, aggregate_bars_to_interval, build_focus_date_window, resolve_higher_timeframe_option
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData
 
@@ -310,6 +310,28 @@ def build_midday_reversal_bars() -> list[BarData]:
     return bars
 
 
+def build_leg_equal_false_positive_bars() -> list[BarData]:
+    bars = build_balanced_range(20)
+    bars.extend(
+        [
+            make_bar(20, 100.0, 101.0, 99.9, 100.9),
+            make_bar(21, 100.9, 102.0, 100.8, 101.8),
+            make_bar(22, 101.8, 103.1, 101.7, 103.0),
+            make_bar(23, 103.0, 104.0, 102.8, 103.8),
+            make_bar(24, 103.8, 104.2, 103.2, 103.4),
+            make_bar(25, 103.4, 104.5, 103.3, 104.3),
+            make_bar(26, 104.3, 104.7, 103.5, 103.7),
+            make_bar(27, 103.7, 104.9, 103.6, 104.8),
+            make_bar(28, 104.8, 105.0, 104.0, 104.2),
+            make_bar(29, 104.2, 104.3, 103.7, 103.8),
+            make_bar(30, 103.8, 104.0, 103.4, 103.5),
+            make_bar(31, 103.5, 104.4, 103.45, 104.2),
+            make_bar(32, 104.2, 105.4, 104.1, 105.2),
+        ]
+    )
+    return bars
+
+
 class TestBrooksChartLogic(unittest.TestCase):
     def test_calculate_ema_uses_sma_seed_and_brooks_20_bar_definition(self) -> None:
         values = [1, 2, 3, 4, 5]
@@ -538,6 +560,19 @@ class TestBrooksChartLogic(unittest.TestCase):
         self.assertGreater(last.target_price, bars[last.projection_start_index].high_price)
         self.assertGreaterEqual(last.end_index, last.projection_start_index)
 
+    def test_detect_measured_move_markers_filters_trend_tail_leg_equal_false_positive(self) -> None:
+        bars = build_leg_equal_false_positive_bars()
+        ema_values, _signals, _background, structure_phase_names, _structure_phases, _event_names, _event_phases = build_brooks_annotations(bars, 0.01)
+        markers = detect_measured_move_markers(
+            bars,
+            strength=1,
+            ema_values=ema_values,
+            structure_phase_names=structure_phase_names,
+        )
+        labels = [(marker.label, marker.projection_start_index) for marker in markers if marker.label.startswith("Leg1=Leg2")]
+
+        self.assertEqual(labels, [])
+
     def test_detect_measured_move_markers_marks_tr_height_target(self) -> None:
         bars = build_tr_measured_move_bars()
         markers = detect_measured_move_markers(bars, strength=1)
@@ -605,6 +640,12 @@ class TestBrooksChartLogic(unittest.TestCase):
         ) = build_brooks_annotations(bars, 0.01)
 
         self.assertIn("午间反转", breakout_event_names)
+
+    def test_build_focus_date_window_uses_selected_date_as_right_edge(self) -> None:
+        start, end = build_focus_date_window(date(2026, 4, 3), 5)
+
+        self.assertEqual(start.strftime("%Y-%m-%d %H:%M:%S"), "2026-03-30 00:00:00")
+        self.assertEqual(end.strftime("%Y-%m-%d %H:%M:%S"), "2026-04-03 23:59:59")
 
 
 if __name__ == "__main__":

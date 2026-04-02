@@ -110,7 +110,7 @@ uv run python scripts/check_bar_data_quality.py --symbols ES --interval 1m --dat
 
 ## 当前建议
 
-- 现在先保留 `US500.OTC` 继续做程序开发。
+- `US500.OTC` 已从主库移除，不再作为当前主线研究样本。
 - 同时尽快补 `ES.CME 1m` 数据。
 - 等 `ES` 数据落库后，再做：
   - `Leg1=Leg2`
