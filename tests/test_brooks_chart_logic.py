@@ -207,18 +207,23 @@ def build_open_bom_bars() -> list[BarData]:
 
 
 def build_measured_move_bars() -> list[BarData]:
-    return [
-        make_bar(0, 100.0, 100.4, 99.8, 100.2),
-        make_bar(1, 100.2, 100.6, 99.6, 100.0),
-        make_bar(2, 100.5, 101.0, 100.4, 100.9),
-        make_bar(3, 100.9, 102.2, 100.8, 102.0),
-        make_bar(4, 102.0, 101.8, 101.0, 101.2),
-        make_bar(5, 101.2, 101.4, 100.2, 100.4),
-        make_bar(6, 100.4, 100.8, 100.0, 100.6),
-        make_bar(7, 100.6, 101.0, 100.5, 100.9),
-        make_bar(8, 100.9, 101.3, 100.8, 101.1),
-        make_bar(9, 101.1, 101.8, 101.0, 101.7),
-    ]
+    bars = build_balanced_range(20)
+    bars.extend(
+        [
+            make_bar(20, 100.0, 100.8, 99.95, 100.6),
+            make_bar(21, 100.6, 102.0, 100.55, 101.8),
+            make_bar(22, 101.8, 103.3, 101.75, 103.1),
+            make_bar(23, 103.1, 104.3, 103.0, 104.1),
+            make_bar(24, 104.1, 104.2, 103.2, 103.4),
+            make_bar(25, 103.4, 103.5, 102.0, 102.2),
+            make_bar(26, 102.2, 102.3, 101.1, 101.3),
+            make_bar(27, 101.3, 101.6, 100.9, 101.5),
+            make_bar(28, 101.5, 102.2, 101.4, 102.0),
+            make_bar(29, 102.0, 103.0, 101.9, 102.8),
+            make_bar(30, 102.8, 104.0, 102.7, 103.8),
+        ]
+    )
+    return bars
 
 
 def build_tr_measured_move_bars() -> list[BarData]:
@@ -551,7 +556,14 @@ class TestBrooksChartLogic(unittest.TestCase):
 
     def test_detect_measured_move_markers_marks_abcd_target(self) -> None:
         bars = build_measured_move_bars()
-        markers = detect_measured_move_markers(bars, strength=1)
+        ema_values, _signals, _background, structure_phase_names, _structure_phases, event_names, _event_phases = build_brooks_annotations(bars, 0.01)
+        markers = detect_measured_move_markers(
+            bars,
+            strength=1,
+            ema_values=ema_values,
+            structure_phase_names=structure_phase_names,
+            breakout_event_names=event_names,
+        )
 
         self.assertTrue(markers)
         last = [marker for marker in markers if marker.label == "Leg1=Leg2↑"][-1]

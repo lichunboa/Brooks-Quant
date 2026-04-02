@@ -764,8 +764,8 @@ def detect_measured_move_markers(
             deduped
             and marker.label == deduped[-1].label
             and marker.direction == deduped[-1].direction
-            and abs(marker.target_price - deduped[-1].target_price) <= avg_range * 0.2
-            and abs(marker.projection_start_index - deduped[-1].projection_start_index) <= 1
+            and abs(marker.target_price - deduped[-1].target_price) <= avg_range * (0.55 if marker.label.startswith("Leg1=Leg2") else 0.2)
+            and abs(marker.projection_start_index - deduped[-1].projection_start_index) <= (3 if marker.label.startswith("Leg1=Leg2") else 1)
         ):
             deduped[-1] = marker
             continue
@@ -796,7 +796,9 @@ def _detect_leg_equal_leg_markers(
 
         if left[1] == "L" and middle[1] == "H" and right[1] == "L":
             leg_size = middle[2] - left[2]
-            if leg_size < avg_range * 1.2:
+            leg_bar_count = middle[0] - left[0] + 1
+            pullback_bar_count = right[0] - middle[0]
+            if leg_size < avg_range * 2.4 or leg_bar_count < 4 or pullback_bar_count < 2:
                 continue
             pullback_size = middle[2] - right[2]
             pullback_ratio = pullback_size / max(leg_size, 1e-6)
@@ -810,6 +812,7 @@ def _detect_leg_equal_leg_markers(
                 pullback_ratio=pullback_ratio,
                 near_ema=near_ema,
                 direction="bull",
+                leg_size=leg_size,
             )
             if not leg_context:
                 continue
@@ -841,7 +844,9 @@ def _detect_leg_equal_leg_markers(
 
         if left[1] == "H" and middle[1] == "L" and right[1] == "H":
             leg_size = left[2] - middle[2]
-            if leg_size < avg_range * 1.2:
+            leg_bar_count = middle[0] - left[0] + 1
+            pullback_bar_count = right[0] - middle[0]
+            if leg_size < avg_range * 2.4 or leg_bar_count < 4 or pullback_bar_count < 2:
                 continue
             pullback_size = right[2] - middle[2]
             pullback_ratio = pullback_size / max(leg_size, 1e-6)
@@ -855,6 +860,7 @@ def _detect_leg_equal_leg_markers(
                 pullback_ratio=pullback_ratio,
                 near_ema=near_ema,
                 direction="bear",
+                leg_size=leg_size,
             )
             if not leg_context:
                 continue
@@ -1448,6 +1454,7 @@ def evaluate_leg_equal_context(
     pullback_ratio: float,
     near_ema: bool,
     direction: str,
+    leg_size: float,
 ) -> str:
     """只在更接近 Brooks 语境时才放行 Leg1=Leg2。"""
     leg_bar_count = max(1, middle[0] - left[0] + 1)
@@ -1464,20 +1471,28 @@ def evaluate_leg_equal_context(
         middle[0],
         direction=direction,
     )
+    segment_avg_range = max(
+        sum(max(bar.high_price - bar.low_price, 0.0) for bar in bars[left[0]:middle[0] + 1]) / leg_bar_count,
+        1e-6,
+    )
+
+    if phase_name in {"", "未就绪"}:
+        return ""
 
     in_trade_range = phase_name in {"震荡", "趋势交易区间"}
-    deep_pullback = pullback_ratio >= 0.60
-    ema_context = near_ema and pullback_ratio >= 0.50 and phase_name in {"宽幅通道", "震荡", "趋势交易区间"}
-    weaker_leg = leg_trend_ratio <= 0.52 or max_leg_streak <= 2
-    overly_one_sided = leg_trend_ratio >= 0.64 and max_leg_streak >= 4
+    deep_pullback = pullback_ratio >= 0.68 and near_ema
+    ema_context = near_ema and pullback_ratio >= 0.58 and phase_name in {"宽幅通道", "震荡", "趋势交易区间"}
+    weaker_leg = leg_trend_ratio <= 0.48 or max_leg_streak <= 2
+    overly_one_sided = leg_trend_ratio >= 0.60 and max_leg_streak >= 3
+    meaningful_leg = leg_size >= segment_avg_range * 3.0 and leg_bar_count >= 5
 
     if in_trade_range:
-        if pullback_ratio >= 0.34 and (weaker_leg or near_ema):
+        if pullback_ratio >= 0.45 and (weaker_leg or near_ema) and meaningful_leg:
             return "交易区间内部"
         return ""
-    if deep_pullback:
+    if deep_pullback and phase_name != "窄幅通道" and meaningful_leg:
         return "强趋势深回调"
-    if ema_context and not overly_one_sided:
+    if ema_context and not overly_one_sided and meaningful_leg:
         return "EMA配合"
     return ""
 
