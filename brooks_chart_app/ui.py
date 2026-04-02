@@ -94,15 +94,39 @@ TOPIC_STAGE_OPTIONS: tuple[str, ...] = (
 )
 BROOKS_FONT_MONO: str = "Menlo"
 BROOKS_FONT_UI: str = "PingFang SC"
-BROOKS_LABEL_SIZE_SMALL: int = 8
-BROOKS_LABEL_SIZE_NORMAL: int = 9
-BROOKS_LABEL_SIZE_TITLE: int = 11
-BROOKS_LINE_WIDTH_THIN: float = 1.0
-BROOKS_LINE_WIDTH_NORMAL: float = 1.2
-BROOKS_LINE_WIDTH_STRONG: float = 1.6
+BROOKS_LABEL_SIZE_MICRO: int = 8
+BROOKS_LABEL_SIZE_SMALL: int = 9
+BROOKS_LABEL_SIZE_NORMAL: int = 10
+BROOKS_LABEL_SIZE_TITLE: int = 12
+BROOKS_LINE_WIDTH_THIN: float = 1.15
+BROOKS_LINE_WIDTH_NORMAL: float = 1.45
+BROOKS_LINE_WIDTH_STRONG: float = 1.9
 BROOKS_BOX_ALPHA_LIGHT: int = 18
 BROOKS_BOX_ALPHA_NORMAL: int = 26
 BROOKS_BOX_ALPHA_STRONG: int = 34
+
+
+def brooks_font(
+    size: int,
+    *,
+    mono: bool = True,
+    weight: QtGui.QFont.Weight = QtGui.QFont.Weight.Normal,
+) -> QtGui.QFont:
+    """统一 Brooks 图表字体，避免各处散落硬编码。"""
+    family = BROOKS_FONT_MONO if mono else BROOKS_FONT_UI
+    font = QtGui.QFont(family, size)
+    font.setWeight(weight)
+    return font
+
+
+def brooks_pen(
+    color: tuple[int, ...],
+    *,
+    width: float = BROOKS_LINE_WIDTH_NORMAL,
+    style: QtCore.Qt.PenStyle = QtCore.Qt.PenStyle.SolidLine,
+):
+    """统一 Brooks 图表线条样式。"""
+    return pg.mkPen(color=color, width=width, style=style)
 
 
 @dataclass
@@ -135,7 +159,7 @@ class BrooksDatetimeAxis(DatetimeAxis):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.tickFont = QtGui.QFont("Arial", 8)
+        self.tickFont = brooks_font(BROOKS_LABEL_SIZE_SMALL)
 
     def tickStrings(self, values: list[int], scale: float, spacing: int) -> list[str]:
         if spacing < 1:
@@ -1145,7 +1169,7 @@ class BrooksChartManager(QtWidgets.QWidget):
                 color = (160, 160, 160)
 
             label = pg.TextItem(text=str(count), color=color, anchor=(0.5, 0))
-            label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL))
+            label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL))
             label.setPos(index, bar.low_price - avg_range * 0.18)
             plot.addItem(label)
             self.bar_count_items.append(label)
@@ -1173,14 +1197,14 @@ class BrooksChartManager(QtWidgets.QWidget):
         plot = chart_widget.get_plot("candle")
         if plot is None or not ema_values:
             return
-        pen = pg.mkPen(color=(255, 215, 0), width=2.2)
+        pen = brooks_pen((255, 215, 0), width=BROOKS_LINE_WIDTH_STRONG + 0.35)
         item = pg.PlotCurveItem(list(range(len(ema_values))), ema_values, pen=pen)
         item.setZValue(4)
         plot.addItem(item)
         overlay_items.append(item)
 
         label = pg.TextItem(text="EMA20", color=(255, 215, 0), anchor=(1, 1))
-        label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_NORMAL))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_NORMAL))
         label.setPos(len(ema_values) - 1, ema_values[-1])
         plot.addItem(label)
         overlay_items.append(label)
@@ -1199,7 +1223,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         if plot is None or not bars:
             return
         label = pg.TextItem(text=text, color=(255, 255, 255), anchor=(0, 0))
-        label.setFont(QtGui.QFont(BROOKS_FONT_UI, BROOKS_LABEL_SIZE_TITLE, QtGui.QFont.Weight.Bold))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_TITLE, mono=False, weight=QtGui.QFont.Weight.Bold))
         label.setPos(1, max(bar.high_price for bar in bars))
         plot.addItem(label)
         overlay_items.append(label)
@@ -1455,13 +1479,13 @@ class BrooksChartManager(QtWidgets.QWidget):
                 guide = pg.PlotCurveItem(
                     [leg_start, end_index],
                     [marker.leg_start_price, marker.target_price],
-                    pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
+                    pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
                 )
             else:
                 guide = pg.PlotCurveItem(
                     [leg_start, leg_end],
                     [marker.leg_start_price, marker.leg_end_price],
-                    pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
+                    pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
                 )
             guide.setZValue(-5)
             plot.addItem(guide)
@@ -1480,14 +1504,14 @@ class BrooksChartManager(QtWidgets.QWidget):
         line = pg.PlotCurveItem(
             [start_index - 0.3, end_index + 0.3],
             [price, price],
-            pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DotLine),
+            pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DotLine),
         )
         line.setZValue(-6)
         plot.addItem(line)
         self.overlay_items.append(line)
 
         label = pg.TextItem(text=label_text, color=color, anchor=(1, 1))
-        label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL))
         label.setPos(end_index + 0.2, price)
         plot.addItem(label)
         self.overlay_items.append(label)
@@ -1519,7 +1543,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             anchor_bar = self.current_bars[marker.anchor_index]
             color = color_map.get(marker.label, (200, 200, 200))
             label = pg.TextItem(text=marker.label, color=color, anchor=(0.5, 1.0))
-            label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL, QtGui.QFont.Weight.Bold))
+            label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL, weight=QtGui.QFont.Weight.Bold))
             label.setPos(marker.anchor_index, anchor_bar.high_price + avg_range * 0.22)
             plot.addItem(label)
             self.overlay_items.append(label)
@@ -1550,14 +1574,14 @@ class BrooksChartManager(QtWidgets.QWidget):
             else:
                 border = (229, 57, 53)
                 fill = (229, 57, 53, 80)
-            rect.setPen(pg.mkPen(color=border, width=BROOKS_LINE_WIDTH_THIN))
+            rect.setPen(brooks_pen(border, width=BROOKS_LINE_WIDTH_THIN))
             rect.setBrush(pg.mkBrush(fill))
             rect.setZValue(-3)
             plot.addItem(rect)
             self.overlay_items.append(rect)
 
             label = pg.TextItem(text="MG", color=border, anchor=(0.5, 1.0))
-            label.setFont(QtGui.QFont(BROOKS_FONT_MONO, 7, QtGui.QFont.Weight.Bold))
+            label.setFont(brooks_font(BROOKS_LABEL_SIZE_MICRO, weight=QtGui.QFont.Weight.Bold))
             label.setPos(marker.center_index, marker.top_price)
             plot.addItem(label)
             self.overlay_items.append(label)
@@ -1587,7 +1611,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             if marker.bom_index is not None:
                 bom_bar = self.current_bars[marker.bom_index]
                 label = pg.TextItem(text="Open BOM", color=(186, 104, 200), anchor=(0.5, 1.0))
-                label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL, QtGui.QFont.Weight.Bold))
+                label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL, weight=QtGui.QFont.Weight.Bold))
                 label.setPos(marker.bom_index, bom_bar.high_price)
                 plot.addItem(label)
                 self.overlay_items.append(label)
@@ -1596,14 +1620,14 @@ class BrooksChartManager(QtWidgets.QWidget):
                 line = pg.PlotCurveItem(
                     [marker.bar18_index, marker.bar18_index],
                     [marker.low_price, marker.high_price],
-                    pen=pg.mkPen(color=(0, 255, 255), width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
+                    pen=brooks_pen((0, 255, 255), width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine),
                 )
                 line.setZValue(-5)
                 plot.addItem(line)
                 self.overlay_items.append(line)
 
                 label = pg.TextItem(text="18", color=(0, 255, 255), anchor=(0.5, 1.0))
-                label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL, QtGui.QFont.Weight.Bold))
+                label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL, weight=QtGui.QFont.Weight.Bold))
                 label.setPos(marker.bar18_index, marker.high_price)
                 plot.addItem(label)
                 self.overlay_items.append(label)
@@ -1615,7 +1639,7 @@ class BrooksChartManager(QtWidgets.QWidget):
                 anchor = (0.5, 1.0 if marker.breakout_direction == "bull" else 0.0)
                 label_y = breakout_bar.high_price if marker.breakout_direction == "bull" else breakout_bar.low_price
                 label = pg.TextItem(text=text, color=color, anchor=anchor)
-                label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL, QtGui.QFont.Weight.Bold))
+                label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL, weight=QtGui.QFont.Weight.Bold))
                 label.setPos(marker.breakout_index, label_y)
                 plot.addItem(label)
                 self.overlay_items.append(label)
@@ -1666,7 +1690,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             max((end_index - start_index) + 0.8, 0.8),
             (top_price - bottom_price) + pad * 1.2,
         )
-        rect.setPen(pg.mkPen(color=(255, 235, 59), width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine))
+        rect.setPen(brooks_pen((255, 235, 59), width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DashLine))
         rect.setBrush(pg.mkBrush((255, 235, 59, BROOKS_BOX_ALPHA_NORMAL)))
         rect.setZValue(-3)
         plot.addItem(rect)
@@ -1677,7 +1701,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             color=(255, 235, 59),
             anchor=(0, 1),
         )
-        label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL))
         label.setPos(start_index, top_price + pad * 0.15)
         plot.addItem(label)
         self.compare_focus_items.append(label)
@@ -1697,7 +1721,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         end_x = max(end_index, anchor2[0])
         trend_y_start = anchor1[1]
         trend_y_end = anchor1[1] + slope * (end_x - start_x)
-        line1 = pg.PlotCurveItem([start_x, end_x], [trend_y_start, trend_y_end], pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_STRONG))
+        line1 = pg.PlotCurveItem([start_x, end_x], [trend_y_start, trend_y_end], pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_STRONG))
         line1.setZValue(-4)
         plot.addItem(line1)
         self.overlay_items.append(line1)
@@ -1708,7 +1732,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         line2 = pg.PlotCurveItem(
             [start_x, end_x],
             [channel_y_start, channel_y_end],
-            pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine),
+            pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine),
         )
         line2.setZValue(-4)
         plot.addItem(line2)
@@ -1838,14 +1862,14 @@ class BrooksChartManager(QtWidgets.QWidget):
         line = pg.PlotCurveItem(
             [start_index - 0.35, end_index + 0.35],
             [top_price + pad * 0.45, top_price + pad * 0.45],
-            pen=pg.mkPen(color=get_structure_outline_color(phase.name), width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine),
+            pen=brooks_pen(get_structure_outline_color(phase.name), width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine),
         )
         line.setZValue(-7)
         plot.addItem(line)
         self.overlay_items.append(line)
 
         label = pg.TextItem(text=phase_label, color=get_structure_outline_color(phase.name), anchor=(0, 1))
-        label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL))
         label.setPos(start_index, top_price + pad * 0.4)
         plot.addItem(label)
         self.overlay_items.append(label)
@@ -1871,14 +1895,14 @@ class BrooksChartManager(QtWidgets.QWidget):
             (top_price - bottom_price) + pad * 2,
         )
         line_style = QtCore.Qt.PenStyle.DashLine if dashed else QtCore.Qt.PenStyle.SolidLine
-        rect.setPen(pg.mkPen(color=outline_color, width=BROOKS_LINE_WIDTH_NORMAL if dashed else BROOKS_LINE_WIDTH_STRONG, style=line_style))
+        rect.setPen(brooks_pen(outline_color, width=BROOKS_LINE_WIDTH_NORMAL if dashed else BROOKS_LINE_WIDTH_STRONG, style=line_style))
         rect.setBrush(pg.mkBrush(fill_color))
         rect.setZValue(z_value)
         plot.addItem(rect)
         self.overlay_items.append(rect)
 
         label = pg.TextItem(text=label_text, color=outline_color, anchor=(0, 1))
-        label.setFont(QtGui.QFont(BROOKS_FONT_MONO, BROOKS_LABEL_SIZE_SMALL))
+        label.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL))
         label.setPos(start_index, top_price + pad * 0.15)
         plot.addItem(label)
         self.overlay_items.append(label)
@@ -1906,7 +1930,7 @@ class BrooksChartManager(QtWidgets.QWidget):
                 BAR_WIDTH * 2 + 0.16,
                 signal_bar.high_price - signal_bar.low_price,
             )
-            rect.setPen(pg.mkPen(color=pen_color, width=1.6))
+            rect.setPen(brooks_pen(pen_color, width=BROOKS_LINE_WIDTH_STRONG))
             rect.setBrush(pg.mkBrush(brush_color))
             plot.addItem(rect)
             overlay_items.append(rect)
@@ -1914,7 +1938,7 @@ class BrooksChartManager(QtWidgets.QWidget):
             is_long_signal = signal.kind.startswith("H") or signal.kind == "MAG多"
             label_y = signal_bar.low_price - (signal_bar.high_price - signal_bar.low_price) * 0.8 if is_long_signal else signal_bar.high_price + (signal_bar.high_price - signal_bar.low_price) * 0.8
             text = pg.TextItem(text=f"{signal.kind}\n{signal.quality}", color=pen_color, anchor=(0.5, 0.5))
-            text.setFont(QtGui.QFont(BROOKS_FONT_UI, 9))
+            text.setFont(brooks_font(BROOKS_LABEL_SIZE_NORMAL, mono=False, weight=QtGui.QFont.Weight.Medium))
             text.setPos(signal.signal_index, label_y)
             plot.addItem(text)
             overlay_items.append(text)
@@ -1941,24 +1965,24 @@ class BrooksChartManager(QtWidgets.QWidget):
             direction = trade.get("direction", "")
             color = (46, 204, 113) if direction in {"多", "LONG"} else (231, 76, 60)
 
-            marker = pg.ScatterPlotItem([idx], [price], size=10, brush=pg.mkBrush(color), pen=pg.mkPen(color))
+            marker = pg.ScatterPlotItem([idx], [price], size=11, brush=pg.mkBrush(color), pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_THIN))
             plot.addItem(marker)
             self.overlay_items.append(marker)
 
             nearest_signal = min(self.current_signals, key=lambda s: abs(s.trigger_index - idx), default=None)
             if nearest_signal:
-                line = pg.PlotCurveItem([nearest_signal.signal_index, idx], [nearest_signal.entry_price, price], pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DotLine))
+                line = pg.PlotCurveItem([nearest_signal.signal_index, idx], [nearest_signal.entry_price, price], pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_THIN, style=QtCore.Qt.PenStyle.DotLine))
                 plot.addItem(line)
                 self.overlay_items.append(line)
 
     def add_price_line(self, plot, signal_index: int, price: float, title: str, color: tuple[int, int, int]) -> None:
         end_index = signal_index + 8
-        line = pg.PlotCurveItem([signal_index - 0.2, end_index], [price, price], pen=pg.mkPen(color=color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine))
+        line = pg.PlotCurveItem([signal_index - 0.2, end_index], [price, price], pen=brooks_pen(color, width=BROOKS_LINE_WIDTH_NORMAL, style=QtCore.Qt.PenStyle.DashLine))
         plot.addItem(line)
         self.overlay_items.append(line)
 
         text = pg.TextItem(text=title, color=color, anchor=(0, 1))
-        text.setFont(QtGui.QFont(BROOKS_FONT_UI, 8))
+        text.setFont(brooks_font(BROOKS_LABEL_SIZE_SMALL, mono=False, weight=QtGui.QFont.Weight.Medium))
         text.setPos(end_index + 0.2, price)
         plot.addItem(text)
         self.overlay_items.append(text)

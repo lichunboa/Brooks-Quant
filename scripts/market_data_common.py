@@ -183,6 +183,15 @@ SYMBOL_CONFIGS: tuple[SymbolConfig, ...] = (
         market_group="index_cfd",
         description="德国 40 指数 CFD",
     ),
+    SymbolConfig(
+        symbol="ES",
+        aliases=("ES", "ES_CONT", "ES1", "ES1!", "E-MINI S&P 500", "E MINI S&P 500"),
+        source="external_csv",
+        source_symbol="ES",
+        exchange=Exchange.CME,
+        market_group="futures_cme",
+        description="E-mini S&P 500 期货研究符号",
+    ),
 )
 
 

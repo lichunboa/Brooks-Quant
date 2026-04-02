@@ -20,18 +20,21 @@ GAP_THRESHOLD_MINUTES: dict[str, int] = {
     "forex_otc": 180,
     "metals_otc": 180,
     "index_cfd": 240,
+    "futures_cme": 90,
 }
 IGNORED_LARGE_GAP_MINUTES: dict[str, int] = {
     "crypto_24x7": 0,
     "forex_otc": 2000,
     "metals_otc": 2000,
     "index_cfd": 2000,
+    "futures_cme": 4000,
 }
 FRESHNESS_THRESHOLD_DAYS: dict[str, int] = {
     "crypto_24x7": 3,
     "forex_otc": 14,
     "metals_otc": 14,
     "index_cfd": 14,
+    "futures_cme": 14,
 }
 
 
