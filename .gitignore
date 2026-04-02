@@ -1,0 +1,49 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+__pycache__/
+
+# Jupyter
+.ipynb_checkpoints
+
+# IDE
+.vscode
+.idea
+*.wpr
+*.wpu
+.vs
+x64
+
+# Temp
+build
+dist
+*.local
+
+# VeighNa
+.vntrader
+.venv
+uv.lock
+backtests/output/
+reports/
+
+# Visual Studio intermediate files
+*.exp
+*.iobj
+*.ipdb
+*.pdb
+
+# Documents
+_build
+_static
+_templates
+策略资料/
+
+# Misc
+.DS_Store
+*.mo
+
+# Alpha
+lab/
+/.mypy_cache
