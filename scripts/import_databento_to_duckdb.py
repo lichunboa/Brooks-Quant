@@ -7,9 +7,11 @@ from datetime import datetime
 from pathlib import Path
 import json
 import os
+import re
 
 import databento as db
 import pandas as pd
+from databento.common.error import BentoClientError
 
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData
@@ -25,6 +27,7 @@ INTERVAL_MAP: dict[str, Interval] = {
     "ohlcv-1h": Interval.HOUR,
     "ohlcv-1d": Interval.DAILY,
 }
+LICENSE_END_RE = re.compile(r"Try again with an end time before (?P<end>\S+)\.")
 
 
 def resolve_api_key(cli_api_key: str) -> str:
@@ -139,6 +142,64 @@ def estimate_request(
     }
 
 
+def resolve_schema_available_end(client: db.Historical, dataset: str, schema: str) -> str:
+    """读取指定 dataset/schema 当前公开可见的结束时间。"""
+    dataset_range = client.metadata.get_dataset_range(dataset)
+    schema_range = dataset_range.get("schema", {}).get(schema, {})
+    end = schema_range.get("end") or dataset_range.get("end")
+    if not end:
+        raise SystemExit(f"无法读取 {dataset} / {schema} 的可用结束时间。")
+    return str(end)
+
+
+def parse_license_limited_end(error_text: str) -> str | None:
+    """从 Databento 的许可报错中提取建议结束时间。"""
+    match = LICENSE_END_RE.search(error_text)
+    if not match:
+        return None
+    return match.group("end")
+
+
+def safe_estimate_request(
+    client: db.Historical,
+    *,
+    dataset: str,
+    start: str,
+    end: str | None,
+    symbols: str,
+    schema: str,
+    stype_in: str,
+) -> tuple[dict[str, float | int], str]:
+    """估算请求成本，并在可恢复的 Databento 边界错误时自动收窄结束时间。"""
+    effective_end = end or resolve_schema_available_end(client, dataset, schema)
+    try:
+        estimate = estimate_request(
+            client,
+            dataset=dataset,
+            start=start,
+            end=effective_end,
+            symbols=symbols,
+            schema=schema,
+            stype_in=stype_in,
+        )
+        return estimate, effective_end
+    except BentoClientError as exc:
+        message = str(exc)
+        limited_end = parse_license_limited_end(message)
+        if not limited_end:
+            raise
+        estimate = estimate_request(
+            client,
+            dataset=dataset,
+            start=start,
+            end=limited_end,
+            symbols=symbols,
+            schema=schema,
+            stype_in=stype_in,
+        )
+        return estimate, limited_end
+
+
 def write_metadata_json(path: Path, payload: dict) -> None:
     """把本次下载的元信息写到本地。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,7 +230,7 @@ def main() -> None:
     args = parser.parse_args()
 
     api_key = resolve_api_key(args.api_key)
-    end = args.end.strip() or None
+    requested_end = args.end.strip() or None
 
     try:
         exchange = Exchange(args.exchange.upper())
@@ -177,15 +238,19 @@ def main() -> None:
         raise SystemExit(f"不支持的交易所：{args.exchange}") from exc
 
     client = db.Historical(api_key)
-    estimate = estimate_request(
+    estimate, effective_end = safe_estimate_request(
         client,
         dataset=args.dataset,
         start=args.start,
-        end=end,
+        end=requested_end,
         symbols=args.symbols,
         schema=args.schema,
         stype_in=args.stype_in,
     )
+    if requested_end and effective_end != requested_end:
+        print(f"请求结束时间已自动收窄到许可范围：{effective_end}")
+    elif not requested_end:
+        print(f"未传 --end，已自动使用当前可用结束时间：{effective_end}")
     print(f"Databento 估算成本：${estimate['estimated_cost_usd']:.6f}")
     print(f"计费体积：{estimate['billable_size_bytes']} 字节")
     print(f"记录数：{estimate['record_count']}")
@@ -204,7 +269,8 @@ def main() -> None:
             "schema": args.schema,
             "stype_in": args.stype_in,
             "start": args.start,
-            "end": end,
+            "requested_end": requested_end,
+            "effective_end": effective_end,
             **estimate,
         },
     )
@@ -221,7 +287,7 @@ def main() -> None:
     store = client.timeseries.get_range(
         dataset=args.dataset,
         start=args.start,
-        end=end,
+        end=effective_end,
         symbols=args.symbols,
         schema=args.schema,
         stype_in=args.stype_in,

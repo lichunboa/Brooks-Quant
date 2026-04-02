@@ -11,7 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from import_databento_to_duckdb import normalize_ohlcv_frame
+from import_databento_to_duckdb import normalize_ohlcv_frame, parse_license_limited_end
 from import_generic_csv_to_duckdb import load_csv_bars
 from market_data_common import normalize_symbol
 from vnpy.trader.constant import Exchange, Interval
@@ -80,6 +80,18 @@ class MarketDataToolsTestCase(unittest.TestCase):
         )
         self.assertEqual(normalized.iloc[0]["datetime"], "2026-04-01 13:30:00")
         self.assertEqual(float(normalized.iloc[1]["close"]), 5601.75)
+
+    def test_parse_databento_license_limited_end(self) -> None:
+        message = (
+            "422 dataset_unavailable_range "
+            "Part or all of your request for dataset 'GLBX.MDP3' requires a subscription "
+            "and/or license to access. Try again with an end time before "
+            "2026-04-02T08:36:14.380325000Z."
+        )
+        self.assertEqual(
+            parse_license_limited_end(message),
+            "2026-04-02T08:36:14.380325000Z",
+        )
 
 
 if __name__ == "__main__":

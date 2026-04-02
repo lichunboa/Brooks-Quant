@@ -20,7 +20,7 @@ GAP_THRESHOLD_MINUTES: dict[str, int] = {
     "forex_otc": 180,
     "metals_otc": 180,
     "index_cfd": 240,
-    "futures_cme": 90,
+    "futures_cme": 120,
     "us_equity_intraday_sparse": 120,
 }
 IGNORED_LARGE_GAP_MINUTES: dict[str, int] = {
@@ -28,7 +28,7 @@ IGNORED_LARGE_GAP_MINUTES: dict[str, int] = {
     "forex_otc": 2000,
     "metals_otc": 2000,
     "index_cfd": 2000,
-    "futures_cme": 4000,
+    "futures_cme": 180,
     "us_equity_intraday_sparse": 360,
 }
 FRESHNESS_THRESHOLD_DAYS: dict[str, int] = {
