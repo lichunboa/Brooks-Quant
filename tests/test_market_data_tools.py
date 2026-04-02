@@ -4,11 +4,14 @@ import sys
 import tempfile
 import unittest
 
+import pandas as pd
+
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from import_databento_to_duckdb import normalize_ohlcv_frame
 from import_generic_csv_to_duckdb import load_csv_bars
 from market_data_common import normalize_symbol
 from vnpy.trader.constant import Exchange, Interval
@@ -55,6 +58,28 @@ class MarketDataToolsTestCase(unittest.TestCase):
         self.assertEqual(bars[0].datetime, datetime(2026, 4, 1, 13, 30, tzinfo=timezone.utc))
         self.assertEqual(bars[1].close_price, 5601.75)
         self.assertEqual(bars[1].volume, 256)
+
+    def test_normalize_databento_ohlcv_frame(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "open": [5600.25, 5600.50],
+                "high": [5601.00, 5602.00],
+                "low": [5599.75, 5600.25],
+                "close": [5600.50, 5601.75],
+                "volume": [128, 256],
+            },
+            index=pd.to_datetime(["2026-04-01T13:30:00Z", "2026-04-01T13:31:00Z"], utc=True),
+        )
+        frame.index.name = "ts_event"
+
+        normalized = normalize_ohlcv_frame(frame)
+
+        self.assertEqual(
+            list(normalized.columns),
+            ["datetime", "open", "high", "low", "close", "volume"],
+        )
+        self.assertEqual(normalized.iloc[0]["datetime"], "2026-04-01 13:30:00")
+        self.assertEqual(float(normalized.iloc[1]["close"]), 5601.75)
 
 
 if __name__ == "__main__":

@@ -35,7 +35,8 @@ dependencies = [
     "plotly>=6.0.0",
     "tqdm>=4.67.1",
     "loguru>=0.7.3",
-    "nbformat>=5.10.4"
+    "nbformat>=5.10.4",
+    "databento>=0.74.1",
 ]
 keywords = ["quant", "quantitative", "investment", "trading", "algotrading"]
 
