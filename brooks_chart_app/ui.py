@@ -47,6 +47,7 @@ from .logic import (
     group_bars_by_session,
     select_channel_geometry,
 )
+from .material_dates import MaterialDateRef, load_material_date_refs
 
 
 INTERVAL_NAME_MAP: dict[Interval, str] = {
@@ -523,6 +524,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         self.active_strategy: StrategyBlueprint | None = None
         self.checked_topic_keys: set[str] = set()
         self.pending_focus_datetime: datetime | None = None
+        self.material_date_refs: dict[str, list[MaterialDateRef]] = load_material_date_refs()
 
         self.init_ui()
         self.init_shortcuts()
@@ -563,10 +565,17 @@ class BrooksChartManager(QtWidgets.QWidget):
         self.focus_date_edit.setCalendarPopup(True)
         self.focus_date_edit.setDisplayFormat("yyyy-MM-dd")
         self.focus_date_edit.setDate(QtCore.QDate.currentDate())
+        self.focus_calendar: QtWidgets.QCalendarWidget = QtWidgets.QCalendarWidget()
+        self.focus_calendar.clicked.connect(self.on_focus_calendar_clicked)
+        self.focus_date_edit.setCalendarWidget(self.focus_calendar)
+        self.focus_date_edit.dateChanged.connect(self.on_focus_date_changed)
 
         self.focus_range_combo: QtWidgets.QComboBox = AdaptiveComboBox()
         for days, label in FOCUS_RANGE_OPTIONS:
             self.focus_range_combo.addItem(label, days)
+        default_focus_range_index = self.focus_range_combo.findData(3)
+        if default_focus_range_index >= 0:
+            self.focus_range_combo.setCurrentIndex(default_focus_range_index)
 
         self.apply_focus_range_button: QtWidgets.QPushButton = QtWidgets.QPushButton("按日期加载")
         self.apply_focus_range_button.clicked.connect(self.apply_focus_date_range)
@@ -650,6 +659,10 @@ class BrooksChartManager(QtWidgets.QWidget):
 
         self.status_label: QtWidgets.QLabel = QtWidgets.QLabel("等待加载数据库中的 K 线数据")
         self.status_label.setWordWrap(True)
+        self.material_refs_edit: QtWidgets.QTextEdit = QtWidgets.QTextEdit()
+        self.material_refs_edit.setReadOnly(True)
+        self.material_refs_edit.setPlaceholderText("这里显示当前日期命中的课程页、百科页和 Ali 卡。")
+        self.material_refs_edit.setMinimumHeight(90)
 
         self.chart: InteractiveChartWidget = InteractiveChartWidget()
         self.chart.add_plot("candle", hide_x_axis=True)
@@ -873,6 +886,7 @@ class BrooksChartManager(QtWidgets.QWidget):
         left_layout.addLayout(button_box4)
         left_layout.addLayout(button_box6)
         left_layout.addWidget(self.status_label)
+        left_layout.addWidget(self.material_refs_edit)
         left_layout.addWidget(self.info_tabs)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
@@ -899,6 +913,8 @@ class BrooksChartManager(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)
         self.setLayout(layout)
+        self.apply_material_calendar_marks()
+        self.refresh_material_reference_panel()
 
     def init_shortcuts(self) -> None:
         QtGui.QShortcut(QtGui.QKeySequence("Left"), self, activated=self.chart.pan_left)
@@ -1007,6 +1023,50 @@ class BrooksChartManager(QtWidgets.QWidget):
         display_minutes = max(self.current_display_interval.minutes, 1)
         window = max(80, min(1600, (self.get_selected_focus_days() * 24 * 60) // display_minutes))
         self.focus_on_datetime(target_dt, window=window)
+
+    def apply_material_calendar_marks(self) -> None:
+        """在资料日历里高亮高置信度页面日期。"""
+        default_format = QtGui.QTextCharFormat()
+        for year in range(2010, 2036):
+            for month in range(1, 13):
+                self.focus_calendar.setDateTextFormat(QtCore.QDate(year, month, 1), default_format)
+
+        marked_format = QtGui.QTextCharFormat()
+        marked_format.setFontWeight(QtGui.QFont.Weight.Bold)
+        marked_format.setBackground(QtGui.QColor(255, 241, 118))
+        marked_format.setForeground(QtGui.QColor(51, 51, 51))
+
+        for date_text in self.material_date_refs:
+            ref_date = date.fromisoformat(date_text)
+            qdate = QtCore.QDate(ref_date.year, ref_date.month, ref_date.day)
+            self.focus_calendar.setDateTextFormat(qdate, marked_format)
+
+    def on_focus_date_changed(self, qdate: QtCore.QDate) -> None:
+        self.refresh_material_reference_panel(qdate.toPython())
+
+    def on_focus_calendar_clicked(self, qdate: QtCore.QDate) -> None:
+        self.focus_date_edit.setDate(qdate)
+        if qdate.toPython().isoformat() in self.material_date_refs:
+            self.apply_focus_date_range()
+
+    def refresh_material_reference_panel(self, target_date: date | None = None) -> None:
+        """显示当前日期命中的资料页。"""
+        if target_date is None:
+            target_date = self.focus_date_edit.date().toPython()
+
+        refs = self.material_date_refs.get(target_date.isoformat(), [])
+        if not refs:
+            self.material_refs_edit.setPlainText("当前日期没有已建立的高置信度资料索引。")
+            return
+
+        lines = [f"{target_date:%Y-%m-%d} 命中 {len(refs)} 页资料：", ""]
+        for ref in refs:
+            lines.append(f"[{ref.source}] {ref.title}")
+            lines.append(f"置信度：{ref.confidence}")
+            lines.append(f"依据：{ref.evidence}")
+            lines.append(ref.page_path)
+            lines.append("")
+        self.material_refs_edit.setPlainText("\n".join(lines).strip())
 
     def load_chart(self) -> None:
         overview: BarOverview | None = self.dataset_combo.currentData()
