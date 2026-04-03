@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from brooks_chart_app.logic import BrooksAnalysis, analyze_brooks_context, is_signal_context_supported
+from brooks_chart_app.logic import BrooksAnalysis, analyze_brooks_context
 from brooks_chart_app.setup_engine import SetupCandidate, build_setup_candidates
 from vnpy.trader.constant import Direction, Interval, Offset, Status
 from vnpy.trader.object import BarData, OrderData, TradeData, TickData
@@ -304,18 +304,6 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
             self.signal_orderids.discard(stop_order.stop_orderid)
             self.exit_orderids.discard(stop_order.stop_orderid)
 
-    def is_context_supported(self, direction: str, *, signal_family: str) -> bool:
-        """复用图表分析模块判断当前背景是否支持 setup。"""
-        if not self.current_analysis or not self.signal_history:
-            return False
-        latest_index = len(self.signal_history) - 1
-        return is_signal_context_supported(
-            self.current_analysis,
-            latest_index,
-            direction,
-            signal_family=signal_family,
-        )
-
     def find_current_setup_candidate(self, allowed_kinds: tuple[str, ...]) -> SetupCandidate | None:
         """从共享 setup 模块中挑选当前 bar 的候选。"""
         if not self.current_analysis or not self.signal_history:
@@ -338,118 +326,6 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
         if not current_bar_candidates:
             return None
         return current_bar_candidates[-1]
-
-    def is_pullback_start_for_bull(self, bar: BarData) -> bool:
-        """判断多头回调是否开始。"""
-        if len(self.signal_history) < 2:
-            return False
-
-        prev_bar: BarData = self.signal_history[-2]
-        return (
-            bar.low_price < prev_bar.low_price
-            or bar.close_price < prev_bar.close_price
-            or bar.close_price < self.ema_value
-            or bar.close_price < bar.open_price
-        )
-
-    def is_pullback_start_for_bear(self, bar: BarData) -> bool:
-        """判断空头反弹是否开始。"""
-        if len(self.signal_history) < 2:
-            return False
-
-        prev_bar: BarData = self.signal_history[-2]
-        return (
-            bar.high_price > prev_bar.high_price
-            or bar.close_price > prev_bar.close_price
-            or bar.close_price > self.ema_value
-            or bar.close_price > bar.open_price
-        )
-
-    def is_first_bar_of_up_attempt(self) -> bool:
-        """判断新的向上尝试是否开始。"""
-        if len(self.signal_history) < 3:
-            return False
-
-        bar: BarData = self.signal_history[-1]
-        prev_bar: BarData = self.signal_history[-2]
-        prev_prev_bar: BarData = self.signal_history[-3]
-
-        return (
-            bar.high_price > prev_bar.high_price
-            and prev_bar.high_price <= prev_prev_bar.high_price
-        )
-
-    def is_first_bar_of_down_attempt(self) -> bool:
-        """判断新的向下尝试是否开始。"""
-        if len(self.signal_history) < 3:
-            return False
-
-        bar: BarData = self.signal_history[-1]
-        prev_bar: BarData = self.signal_history[-2]
-        prev_prev_bar: BarData = self.signal_history[-3]
-
-        return (
-            bar.low_price < prev_bar.low_price
-            and prev_bar.low_price >= prev_prev_bar.low_price
-        )
-
-    def is_near_ema_for_long(self, bar: BarData) -> bool:
-        """判断做多信号是否靠近 EMA20。"""
-        avg_range: float = max(self.get_recent_average_range(), self.get_effective_pricetick())
-        threshold: float = avg_range * self.ema_distance_factor
-        return abs(bar.low_price - self.ema_value) <= threshold
-
-    def is_near_ema_for_short(self, bar: BarData) -> bool:
-        """判断做空信号是否靠近 EMA20。"""
-        avg_range: float = max(self.get_recent_average_range(), self.get_effective_pricetick())
-        threshold: float = avg_range * self.ema_distance_factor
-        return abs(bar.high_price - self.ema_value) <= threshold
-
-    def evaluate_bull_signal_quality(self, bar: BarData) -> str:
-        """评估多头 signal bar 质量。"""
-        bar_range: float = max(bar.high_price - bar.low_price, self.get_effective_pricetick())
-        close_position: float = (bar.close_price - bar.low_price) / bar_range
-        upper_tail: float = bar.high_price - max(bar.open_price, bar.close_price)
-
-        if (
-            bar.close_price > bar.open_price
-            and close_position >= 0.7
-            and upper_tail <= bar_range * 0.25
-        ):
-            return "强"
-
-        if close_position >= 0.55:
-            return "中"
-
-        return "弱"
-
-    def evaluate_bear_signal_quality(self, bar: BarData) -> str:
-        """评估空头 signal bar 质量。"""
-        bar_range: float = max(bar.high_price - bar.low_price, self.get_effective_pricetick())
-        close_position: float = (bar.close_price - bar.low_price) / bar_range
-        lower_tail: float = min(bar.open_price, bar.close_price) - bar.low_price
-
-        if (
-            bar.close_price < bar.open_price
-            and close_position <= 0.3
-            and lower_tail <= bar_range * 0.25
-        ):
-            return "强"
-
-        if close_position <= 0.45:
-            return "中"
-
-        return "弱"
-
-    def get_recent_average_range(self) -> float:
-        """获取最近几根信号 K 线的平均波动。"""
-        sample: list[BarData] = self.signal_history[-min(len(self.signal_history), self.ema_window):]
-        if not sample:
-            return self.get_effective_pricetick()
-
-        ranges: list[float] = [max(bar.high_price - bar.low_price, 0.0) for bar in sample]
-        avg_range: float = float(sum(ranges) / len(ranges))
-        return max(avg_range, self.get_effective_pricetick())
 
     def get_effective_pricetick(self) -> float:
         """获取有效价格跳动。"""

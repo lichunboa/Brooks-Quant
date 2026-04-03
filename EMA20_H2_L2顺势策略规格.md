@@ -4,11 +4,11 @@
 
 完整策略规格请优先查看：
 
-- [策略资料/策略规格/EMA20_H2_L2顺势策略规格.md](/Users/mitchellcb/Desktop/量化交易Evo/策略资料/策略规格/EMA20_H2_L2顺势策略规格.md)
+- [策略资料/策略规格/EMA20_H2_L2顺势策略规格.md](/Users/mitchellcb/Desktop/量化交易vnpy/策略资料/策略规格/EMA20_H2_L2顺势策略规格.md)
 
 本地真实文件路径是：
 
-`/Users/mitchellcb/Desktop/量化交易Evo/策略资料/策略规格/EMA20_H2_L2顺势策略规格.md`
+`/Users/mitchellcb/Desktop/量化交易vnpy/策略资料/策略规格/EMA20_H2_L2顺势策略规格.md`
 
 说明：
 
