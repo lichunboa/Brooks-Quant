@@ -36,9 +36,34 @@ def build_setup_candidates(
     mag_max_gap_bars: int = 45,
 ) -> list[SetupCandidate]:
     """统一生成 H1/H2/L1/L2/MAG 候选。"""
+    from . import logic as core
+
+    measured_move_markers = core.detect_measured_move_markers(
+        bars,
+        strength=2,
+        ema_values=analysis.ema_values,
+        structure_phase_names=analysis.structure_phase_names,
+        breakout_event_names=analysis.breakout_event_names,
+    )
     candidates: list[SetupCandidate] = []
-    candidates.extend(_build_pullback_candidates(bars, analysis, pricetick, direction="bull"))
-    candidates.extend(_build_pullback_candidates(bars, analysis, pricetick, direction="bear"))
+    candidates.extend(
+        _build_pullback_candidates(
+            bars,
+            analysis,
+            pricetick,
+            direction="bull",
+            measured_move_markers=measured_move_markers,
+        )
+    )
+    candidates.extend(
+        _build_pullback_candidates(
+            bars,
+            analysis,
+            pricetick,
+            direction="bear",
+            measured_move_markers=measured_move_markers,
+        )
+    )
     candidates.extend(
         _build_mag_candidates(
             bars,
@@ -46,6 +71,7 @@ def build_setup_candidates(
             pricetick,
             min_gap_bars=mag_min_gap_bars,
             max_gap_bars=mag_max_gap_bars,
+            measured_move_markers=measured_move_markers,
         )
     )
     candidates.sort(key=lambda item: (item.signal_index, item.kind))
@@ -94,6 +120,7 @@ def _build_pullback_candidates(
     pricetick: float,
     *,
     direction: str,
+    measured_move_markers,
 ) -> list[SetupCandidate]:
     """生成顺势回调类候选。"""
     from . import logic as core
@@ -121,6 +148,7 @@ def _build_pullback_candidates(
             kind_prefix = "H"
             target_builder = core.choose_buy_target
             reason_text = "EMA20 附近回调"
+            breakout_ref = core.find_recent_breakout_reference(index, bars, analysis.breakout_event_names, direction="bull")
         else:
             context_ok = core.is_signal_context_supported(analysis, index, "bear", signal_family="pullback")
             start_ok = core.is_pullback_start_for_bear(index, bars, ema_values)
@@ -133,6 +161,26 @@ def _build_pullback_candidates(
             kind_prefix = "L"
             target_builder = core.choose_sell_target
             reason_text = "EMA20 附近反弹"
+            breakout_ref = core.find_recent_breakout_reference(index, bars, analysis.breakout_event_names, direction="bear")
+
+        breakout_point_ok = False
+        breakout_signal_ok = False
+        breakout_reason = ""
+        if breakout_ref:
+            _breakout_index, breakout_point = breakout_ref
+            breakout_point_ok = core.is_near_breakout_point(index, bars, range_ma, breakout_point, direction=direction)
+            breakout_signal_ok = core.is_breakout_pullback_signal_bar(
+                index,
+                bars,
+                ema_values,
+                range_ma,
+                breakout_point,
+                direction=direction,
+            )
+            if breakout_point_ok:
+                breakout_reason = "突破点回测"
+            elif breakout_signal_ok:
+                breakout_reason = "突破后小回调延续"
 
         if not pullback_active:
             if context_ok and start_ok:
@@ -161,14 +209,18 @@ def _build_pullback_candidates(
             continue
 
         if not trend_attempt_ok:
-            continue
+            if breakout_ref and breakout_signal_ok:
+                trend_attempt_ok = True
+            if not trend_attempt_ok:
+                continue
 
         attempts += 1
         if attempts > 2:
             pullback_active = False
             continue
 
-        if not near_ema_ok:
+        near_key_level_ok = near_ema_ok or breakout_point_ok or breakout_signal_ok
+        if not near_key_level_ok:
             if attempts >= 2:
                 pullback_active = False
             continue
@@ -179,7 +231,15 @@ def _build_pullback_candidates(
             continue
 
         background = analysis.structure_phase_names[index] if index < len(analysis.structure_phase_names) else "未就绪"
-        target_price = target_builder(prior_swing_price, entry_price, stop_price)
+        target_price = resolve_candidate_target(
+            measured_move_markers=measured_move_markers,
+            direction=direction,
+            signal_index=index,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            fallback_target=target_builder(prior_swing_price, entry_price, stop_price),
+        )
+        location_text = breakout_reason or reason_text
         candidates.append(
             SetupCandidate(
                 kind=f"{kind_prefix}{attempts}",
@@ -190,7 +250,7 @@ def _build_pullback_candidates(
                 stop_price=stop_price,
                 target_price=target_price,
                 ema_value=ema_values[index],
-                reason=f"{background} + {reason_text} + 第{attempts}次尝试",
+                reason=f"{background} + {location_text} + 第{attempts}次尝试",
                 background=background,
             )
         )
@@ -208,6 +268,7 @@ def _build_mag_candidates(
     *,
     min_gap_bars: int,
     max_gap_bars: int,
+    measured_move_markers,
 ) -> list[SetupCandidate]:
     """生成 MAG 候选。"""
     from . import logic as core
@@ -228,7 +289,15 @@ def _build_mag_candidates(
                     entry_price = bar.high_price + pricetick
                     stop_price = bar.low_price - pricetick
                     prior_extreme = max(item.high_price for item in bars[max(0, index - gap_count - 6):index])
-                    target_price = core.choose_buy_target(prior_extreme, entry_price, stop_price)
+                    fallback_target = core.choose_buy_target(prior_extreme, entry_price, stop_price)
+                    target_price = resolve_candidate_target(
+                        measured_move_markers=measured_move_markers,
+                        direction="bull",
+                        signal_index=index,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        fallback_target=fallback_target,
+                    )
                     background = analysis.structure_phase_names[index]
                     candidates.append(
                         SetupCandidate(
@@ -254,7 +323,15 @@ def _build_mag_candidates(
                     entry_price = bar.low_price - pricetick
                     stop_price = bar.high_price + pricetick
                     prior_extreme = min(item.low_price for item in bars[max(0, index - gap_count - 6):index])
-                    target_price = core.choose_sell_target(prior_extreme, entry_price, stop_price)
+                    fallback_target = core.choose_sell_target(prior_extreme, entry_price, stop_price)
+                    target_price = resolve_candidate_target(
+                        measured_move_markers=measured_move_markers,
+                        direction="bear",
+                        signal_index=index,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        fallback_target=fallback_target,
+                    )
                     background = analysis.structure_phase_names[index]
                     candidates.append(
                         SetupCandidate(
@@ -272,3 +349,37 @@ def _build_mag_candidates(
                     )
 
     return candidates
+
+
+def resolve_candidate_target(
+    *,
+    measured_move_markers,
+    direction: str,
+    signal_index: int,
+    entry_price: float,
+    stop_price: float,
+    fallback_target: float,
+) -> float:
+    """优先复用最近有效的测量走势目标。"""
+    actual_risk = max(abs(entry_price - stop_price), 1e-12)
+    candidates: list[float] = []
+    for marker in measured_move_markers:
+        if marker.direction != direction:
+            continue
+        if marker.projection_start_index > signal_index:
+            continue
+        if signal_index - marker.projection_start_index > 12:
+            continue
+        if direction == "bull":
+            if marker.target_price <= entry_price + actual_risk * 0.7:
+                continue
+        else:
+            if marker.target_price >= entry_price - actual_risk * 0.7:
+                continue
+        candidates.append(marker.target_price)
+
+    if not candidates:
+        return fallback_target
+    if direction == "bull":
+        return min(candidates)
+    return max(candidates)

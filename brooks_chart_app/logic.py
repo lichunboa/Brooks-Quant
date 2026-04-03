@@ -3564,3 +3564,105 @@ def choose_sell_target(prior_swing_low: float, entry: float, stop: float) -> flo
     if prior_swing_low < entry:
         return prior_swing_low
     return entry - actual_risk * 2
+
+
+def find_recent_breakout_reference(
+    index: int,
+    bars: list[BarData],
+    breakout_event_names: list[str],
+    *,
+    direction: str,
+    lookback: int = 8,
+) -> tuple[int, float] | None:
+    """寻找最近仍有效的突破点。"""
+    if index <= 0 or not breakout_event_names:
+        return None
+
+    breakout_index = -1
+    search_start = max(0, index - lookback)
+    for cursor in range(index, search_start - 1, -1):
+        if cursor >= len(breakout_event_names):
+            continue
+        if breakout_event_names[cursor] == "突破起爆":
+            breakout_index = cursor
+            break
+    if breakout_index < 0:
+        return None
+
+    prior_window = bars[max(0, breakout_index - 14):breakout_index]
+    if len(prior_window) < 5:
+        return None
+
+    if direction == "bull":
+        breakout_point = max(bar.high_price for bar in prior_window)
+    else:
+        breakout_point = min(bar.low_price for bar in prior_window)
+    return breakout_index, breakout_point
+
+
+def is_near_breakout_point(
+    index: int,
+    bars: list[BarData],
+    range_ma: list[float],
+    breakout_point: float,
+    *,
+    direction: str,
+) -> bool:
+    """判断当前 bar 是否回测到突破点附近。"""
+    avg_range = max(range_ma[index], 1e-12)
+    bar = bars[index]
+    if direction == "bull":
+        touched = bar.low_price <= breakout_point + avg_range * 0.30
+        held = bar.close_price >= breakout_point - avg_range * 0.10
+        return touched and held
+
+    touched = bar.high_price >= breakout_point - avg_range * 0.30
+    held = bar.close_price <= breakout_point + avg_range * 0.10
+    return touched and held
+
+
+def is_breakout_pullback_signal_bar(
+    index: int,
+    bars: list[BarData],
+    ema_values: list[float],
+    range_ma: list[float],
+    breakout_point: float,
+    *,
+    direction: str,
+) -> bool:
+    """判断突破后的回测 bar 是否更像趋势恢复 signal bar。"""
+    avg_range = max(range_ma[index], 1e-12)
+    bar = bars[index]
+    ema_value = ema_values[index]
+    body_ratio = get_bar_body(bar) / get_bar_range(bar)
+    prev_bar = bars[index - 1] if index > 0 else bar
+    prior_test = index > 0 and is_near_breakout_point(index - 1, bars, range_ma, breakout_point, direction=direction)
+
+    if direction == "bull":
+        return (
+            bar.close_price > bar.open_price
+            and body_ratio >= 0.38
+            and (
+                is_near_breakout_point(index, bars, range_ma, breakout_point, direction=direction)
+                or prior_test
+            )
+            and (
+                bar.close_price >= prev_bar.close_price + avg_range * 0.04
+                or bar.high_price >= prev_bar.high_price - avg_range * 0.08
+            )
+            and (bar.close_price >= ema_value or bar.low_price <= ema_value + avg_range * 0.18 or prior_test)
+        )
+
+    return (
+        bar.close_price < bar.open_price
+        and body_ratio >= 0.38
+        and (
+            is_near_breakout_point(index, bars, range_ma, breakout_point, direction=direction)
+            or prior_test
+        )
+        and (
+            bar.close_price <= prev_bar.close_price - avg_range * 0.04
+            or bar.low_price <= prev_bar.low_price + avg_range * 0.08
+        )
+        and (bar.close_price <= ema_value or bar.high_price >= ema_value - avg_range * 0.18 or prior_test)
+    )
