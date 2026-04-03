@@ -745,7 +745,14 @@ def detect_measured_move_markers(
             structure_phase_names=structure_phase_names,
         )
     )
-    markers.extend(_detect_tr_height_measured_move_markers(bars, avg_range=avg_range))
+    markers.extend(
+        _detect_tr_height_measured_move_markers(
+            bars,
+            avg_range=avg_range,
+            structure_phase_names=structure_phase_names,
+            breakout_event_names=breakout_event_names,
+        )
+    )
     markers.extend(_detect_breakout_body_measured_move_markers(bars, avg_range=avg_range))
     markers.extend(
         _detect_measuring_gap_measured_move_markers(
@@ -764,8 +771,12 @@ def detect_measured_move_markers(
             deduped
             and marker.label == deduped[-1].label
             and marker.direction == deduped[-1].direction
-            and abs(marker.target_price - deduped[-1].target_price) <= avg_range * (0.55 if marker.label.startswith("Leg1=Leg2") else 0.2)
-            and abs(marker.projection_start_index - deduped[-1].projection_start_index) <= (3 if marker.label.startswith("Leg1=Leg2") else 1)
+            and abs(marker.target_price - deduped[-1].target_price) <= avg_range * (
+                0.55 if marker.label.startswith("Leg1=Leg2") else 0.45 if marker.label.startswith("TR MM") else 0.2
+            )
+            and abs(marker.projection_start_index - deduped[-1].projection_start_index) <= (
+                3 if marker.label.startswith("Leg1=Leg2") else 4 if marker.label.startswith("TR MM") else 1
+            )
         ):
             deduped[-1] = marker
             continue
@@ -896,29 +907,52 @@ def _detect_tr_height_measured_move_markers(
     bars: list[BarData],
     *,
     avg_range: float,
+    structure_phase_names: list[str] | None,
+    breakout_event_names: list[str] | None,
 ) -> list[MeasuredMoveMarker]:
     """识别基于交易区间高度的测量走势。"""
-    if len(bars) < 8:
+    if len(bars) < 10:
         return []
 
     markers: list[MeasuredMoveMarker] = []
-    for index in range(6, len(bars)):
-        window = bars[index - 6:index]
+    for index in range(8, len(bars)):
+        window = bars[index - 8:index]
         range_high = max(bar.high_price for bar in window)
         range_low = min(bar.low_price for bar in window)
         range_height = range_high - range_low
-        if range_height < avg_range * 1.1:
+        if range_height < avg_range * 1.35:
             continue
+
+        phase_name = structure_phase_names[index] if structure_phase_names and index < len(structure_phase_names) else ""
+        if phase_name in {"", "未就绪", "宽幅通道"}:
+            continue
+
+        if structure_phase_names:
+            phase_window = structure_phase_names[index - 8:index]
+            range_like_count = sum(1 for name in phase_window if name in {"震荡", "趋势交易区间"})
+            if range_like_count < max(5, len(phase_window) - 3):
+                continue
+
         overlap_count = 0
         for left_bar, right_bar in zip(window[:-1], window[1:]):
             overlap = min(left_bar.high_price, right_bar.high_price) - max(left_bar.low_price, right_bar.low_price)
             if overlap > 0:
                 overlap_count += 1
-        if count_breakout_mode_reversals(window) < 2 and overlap_count < max(2, len(window) // 2):
+        if count_breakout_mode_reversals(window) < 3 or overlap_count < max(5, len(window) - 3):
             continue
 
+        if breakout_event_names:
+            recent_events = breakout_event_names[max(0, index - 2):index + 1]
+            if not any(name in {"突破起爆", "突破跟进"} for name in recent_events):
+                continue
+
         bar = bars[index]
-        if is_bull_trend_bar(bar) and bar.close_price > range_high + avg_range * 0.08:
+        body_height = get_bar_body(bar)
+        if (
+            is_bull_trend_bar(bar)
+            and body_height >= avg_range * 0.65
+            and bar.close_price > range_high + avg_range * 0.12
+        ):
             target_price = range_high + range_height
             end_index = resolve_measured_move_end_index(
                 bars,
@@ -945,7 +979,11 @@ def _detect_tr_height_measured_move_markers(
             )
             continue
 
-        if is_bear_trend_bar(bar) and bar.close_price < range_low - avg_range * 0.08:
+        if (
+            is_bear_trend_bar(bar)
+            and body_height >= avg_range * 0.65
+            and bar.close_price < range_low - avg_range * 0.12
+        ):
             target_price = range_low - range_height
             end_index = resolve_measured_move_end_index(
                 bars,

@@ -227,16 +227,19 @@ def build_measured_move_bars() -> list[BarData]:
 
 
 def build_tr_measured_move_bars() -> list[BarData]:
-    return [
-        make_bar(0, 100.0, 100.6, 99.7, 100.3),
-        make_bar(1, 100.3, 100.7, 99.8, 100.0),
-        make_bar(2, 100.0, 100.8, 99.9, 100.4),
-        make_bar(3, 100.4, 100.75, 99.85, 100.1),
-        make_bar(4, 100.1, 100.7, 99.9, 100.5),
-        make_bar(5, 100.5, 100.78, 99.88, 100.2),
-        make_bar(6, 100.25, 101.6, 100.2, 101.45),
-        make_bar(7, 101.4, 101.7, 101.1, 101.55),
-    ]
+    bars = build_balanced_range(20)
+    bars.extend(
+        [
+            make_bar(20, 100.18, 100.55, 99.92, 100.12),
+            make_bar(21, 100.12, 100.48, 99.88, 100.26),
+            make_bar(22, 100.26, 100.58, 99.94, 100.08),
+            make_bar(23, 100.08, 100.46, 99.86, 100.18),
+            make_bar(24, 100.18, 100.62, 99.98, 100.32),
+            make_bar(25, 100.32, 101.85, 100.26, 101.70),
+            make_bar(26, 101.68, 102.02, 101.42, 101.86),
+        ]
+    )
+    return bars
 
 
 def build_bo_measured_move_bars() -> list[BarData]:
@@ -587,10 +590,32 @@ class TestBrooksChartLogic(unittest.TestCase):
 
     def test_detect_measured_move_markers_marks_tr_height_target(self) -> None:
         bars = build_tr_measured_move_bars()
-        markers = detect_measured_move_markers(bars, strength=1)
+        ema_values, _signals, _background, structure_phase_names, _structure_phases, event_names, _event_phases = build_brooks_annotations(bars, 0.01)
+        markers = detect_measured_move_markers(
+            bars,
+            strength=1,
+            ema_values=ema_values,
+            structure_phase_names=structure_phase_names,
+            breakout_event_names=event_names,
+        )
         labels = {marker.label for marker in markers}
 
         self.assertIn("TR MM↑", labels)
+
+    def test_detect_measured_move_markers_filters_tr_height_noise_in_tight_trend(self) -> None:
+        bars = build_tight_bull_channel(40)
+        ema_values, _signals, _background, structure_phase_names, _structure_phases, event_names, _event_phases = build_brooks_annotations(bars, 0.01)
+        markers = detect_measured_move_markers(
+            bars,
+            strength=1,
+            ema_values=ema_values,
+            structure_phase_names=structure_phase_names,
+            breakout_event_names=event_names,
+        )
+        labels = {marker.label for marker in markers}
+
+        self.assertNotIn("TR MM↑", labels)
+        self.assertNotIn("TR MM↓", labels)
 
     def test_detect_measured_move_markers_marks_breakout_body_target(self) -> None:
         bars = build_bo_measured_move_bars()
