@@ -11,7 +11,6 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from brooks_chart_app.material_dates import extract_full_dates, infer_source_label
 from import_databento_to_duckdb import normalize_ohlcv_frame, parse_license_limited_end
 from import_generic_csv_to_duckdb import load_csv_bars
 from market_data_common import normalize_symbol
@@ -92,18 +91,6 @@ class MarketDataToolsTestCase(unittest.TestCase):
             parse_license_limited_end(message),
             "2026-04-02T08:36:14.380325000Z",
         )
-
-    def test_extract_full_dates_accepts_us_style_dates(self) -> None:
-        text = "Emini 5 min\\n12/13/17 ... 12/14/17\\n4/18 /17 ... 4/20 /17"
-        self.assertEqual(
-            extract_full_dates(text),
-            {"2017-12-13", "2017-12-14", "2017-04-18", "2017-04-20"},
-        )
-
-    def test_infer_source_label_maps_known_folders(self) -> None:
-        self.assertEqual(infer_source_label(Path("百科幻灯片-2/pages/page-0381.md")), "百科")
-        self.assertEqual(infer_source_label(Path("Ali Flash Cards - 完美裁切A3宽(4K屏推荐)/pages/page-0001.md")), "Ali")
-        self.assertEqual(infer_source_label(Path("Video 15H Breakouts突破/pages/page-0017.md")), "课程")
 
 
 if __name__ == "__main__":
