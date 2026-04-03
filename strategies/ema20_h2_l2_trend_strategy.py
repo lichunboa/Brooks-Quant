@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from brooks_chart_app.logic import BrooksAnalysis, analyze_brooks_context
+from brooks_chart_app.logic import BrooksAnalysis, analyze_brooks_context, is_signal_context_supported
 from brooks_chart_app.setup_engine import SetupCandidate, build_setup_candidates
 from vnpy.trader.constant import Direction, Interval, Offset, Status
 from vnpy.trader.object import BarData, OrderData, TradeData, TickData
@@ -26,7 +26,9 @@ class PendingSignal:
     signal_count: int
     entry_price: float
     stop_price: float
-    target_price: float
+    first_target_price: float
+    runner_target_price: float
+    management_mode: str
     kind: str
 
 
@@ -54,8 +56,12 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
     pending_kind: str = ""
     active_stop_price: float = 0.0
     active_target_price: float = 0.0
+    active_first_target_price: float = 0.0
+    active_runner_target_price: float = 0.0
     active_entry_price: float = 0.0
     active_risk: float = 0.0
+    active_management_mode: str = ""
+    active_first_target_hit: bool = False
     signal_bar_count: int = 0
 
     parameters: list[str] = [
@@ -77,8 +83,12 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
         "pending_kind",
         "active_stop_price",
         "active_target_price",
+        "active_first_target_price",
+        "active_runner_target_price",
         "active_entry_price",
         "active_risk",
+        "active_management_mode",
+        "active_first_target_hit",
         "signal_bar_count",
     ]
 
@@ -158,7 +168,9 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
             signal_count=self.signal_bar_count,
             entry_price=candidate.entry_price,
             stop_price=candidate.stop_price,
-            target_price=candidate.target_price,
+            first_target_price=candidate.target_price,
+            runner_target_price=candidate.runner_target_price,
+            management_mode=candidate.management_mode,
             kind=f"{candidate.kind}-{candidate.quality}",
         )
         self.submit_pending_signal()
@@ -174,7 +186,9 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
             signal_count=self.signal_bar_count,
             entry_price=candidate.entry_price,
             stop_price=candidate.stop_price,
-            target_price=candidate.target_price,
+            first_target_price=candidate.target_price,
+            runner_target_price=candidate.runner_target_price,
+            management_mode=candidate.management_mode,
             kind=f"{candidate.kind}-{candidate.quality}",
         )
         self.submit_pending_signal()
@@ -239,7 +253,15 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
         if self.active_entry_price <= 0 or self.active_risk <= 0:
             return
 
-        if self.am.close[-1] >= (self.active_entry_price + self.active_risk * self.breakeven_r):
+        current_bar = self.signal_history[-1] if self.signal_history else None
+        if current_bar and not self.active_first_target_hit and current_bar.high_price >= self.active_first_target_price:
+            self.active_first_target_hit = True
+
+        if self.active_first_target_hit:
+            self.active_stop_price = max(self.active_stop_price, self.active_entry_price)
+            if self.active_management_mode == "runner":
+                self.active_target_price = max(self.active_target_price, self.active_runner_target_price)
+        elif self.am.close[-1] >= (self.active_entry_price + self.active_risk * self.breakeven_r):
             self.active_stop_price = max(self.active_stop_price, self.active_entry_price)
 
         self.cancel_exit_orders()
@@ -255,7 +277,15 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
         if self.active_entry_price <= 0 or self.active_risk <= 0:
             return
 
-        if self.am.close[-1] <= (self.active_entry_price - self.active_risk * self.breakeven_r):
+        current_bar = self.signal_history[-1] if self.signal_history else None
+        if current_bar and not self.active_first_target_hit and current_bar.low_price <= self.active_first_target_price:
+            self.active_first_target_hit = True
+
+        if self.active_first_target_hit:
+            self.active_stop_price = min(self.active_stop_price, self.active_entry_price)
+            if self.active_management_mode == "runner":
+                self.active_target_price = min(self.active_target_price, self.active_runner_target_price)
+        elif self.am.close[-1] <= (self.active_entry_price - self.active_risk * self.breakeven_r):
             self.active_stop_price = min(self.active_stop_price, self.active_entry_price)
 
         self.cancel_exit_orders()
@@ -283,7 +313,14 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
         if trade.offset == Offset.OPEN and self.pending_signal:
             self.active_entry_price = trade.price or self.pending_signal.entry_price
             self.active_stop_price = self.pending_signal.stop_price
-            self.active_target_price = self.pending_signal.target_price
+            self.active_first_target_price = self.pending_signal.first_target_price
+            self.active_runner_target_price = self.pending_signal.runner_target_price
+            self.active_management_mode = self.pending_signal.management_mode
+            self.active_first_target_hit = False
+            if self.pending_signal.management_mode == "runner":
+                self.active_target_price = self.pending_signal.runner_target_price
+            else:
+                self.active_target_price = self.pending_signal.first_target_price
             self.active_risk = abs(self.active_entry_price - self.active_stop_price)
             self.pending_signal = None
             self.pending_kind = ""
@@ -293,7 +330,11 @@ class Ema20H2L2TrendStrategy(CtaTemplate):
             self.active_entry_price = 0.0
             self.active_stop_price = 0.0
             self.active_target_price = 0.0
+            self.active_first_target_price = 0.0
+            self.active_runner_target_price = 0.0
             self.active_risk = 0.0
+            self.active_management_mode = ""
+            self.active_first_target_hit = False
             self.cancel_exit_orders()
 
         self.put_event()

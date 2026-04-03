@@ -25,6 +25,8 @@ class SetupCandidate:
     ema_value: float
     reason: str
     background: str
+    runner_target_price: float = 0.0
+    management_mode: str = "scalp"
 
 
 def build_setup_candidates(
@@ -239,6 +241,15 @@ def _build_pullback_candidates(
             stop_price=stop_price,
             fallback_target=target_builder(prior_swing_price, entry_price, stop_price),
         )
+        runner_target_price = resolve_runner_target(
+            measured_move_markers=measured_move_markers,
+            direction=direction,
+            signal_index=index,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            first_target_price=target_price,
+        )
+        management_mode = "runner" if breakout_reason or attempts >= 2 else "scalp"
         location_text = breakout_reason or reason_text
         candidates.append(
             SetupCandidate(
@@ -252,6 +263,8 @@ def _build_pullback_candidates(
                 ema_value=ema_values[index],
                 reason=f"{background} + {location_text} + 第{attempts}次尝试",
                 background=background,
+                runner_target_price=runner_target_price,
+                management_mode=management_mode,
             )
         )
 
@@ -298,6 +311,14 @@ def _build_mag_candidates(
                         stop_price=stop_price,
                         fallback_target=fallback_target,
                     )
+                    runner_target_price = resolve_runner_target(
+                        measured_move_markers=measured_move_markers,
+                        direction="bull",
+                        signal_index=index,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        first_target_price=target_price,
+                    )
                     background = analysis.structure_phase_names[index]
                     candidates.append(
                         SetupCandidate(
@@ -311,6 +332,8 @@ def _build_mag_candidates(
                             ema_value=ema_value,
                             reason=f"{background} + {gap_count}根 EMA 缺口后的首次回测",
                             background=background,
+                            runner_target_price=runner_target_price,
+                            management_mode="runner",
                         )
                     )
 
@@ -332,6 +355,14 @@ def _build_mag_candidates(
                         stop_price=stop_price,
                         fallback_target=fallback_target,
                     )
+                    runner_target_price = resolve_runner_target(
+                        measured_move_markers=measured_move_markers,
+                        direction="bear",
+                        signal_index=index,
+                        entry_price=entry_price,
+                        stop_price=stop_price,
+                        first_target_price=target_price,
+                    )
                     background = analysis.structure_phase_names[index]
                     candidates.append(
                         SetupCandidate(
@@ -345,6 +376,8 @@ def _build_mag_candidates(
                             ema_value=ema_value,
                             reason=f"{background} + {gap_count}根 EMA 缺口后的首次回测",
                             background=background,
+                            runner_target_price=runner_target_price,
+                            management_mode="runner",
                         )
                     )
 
@@ -383,3 +416,40 @@ def resolve_candidate_target(
     if direction == "bull":
         return min(candidates)
     return max(candidates)
+
+
+def resolve_runner_target(
+    *,
+    measured_move_markers,
+    direction: str,
+    signal_index: int,
+    entry_price: float,
+    stop_price: float,
+    first_target_price: float,
+) -> float:
+    """为趋势恢复类 setup 选择更远的 runner 目标。"""
+    actual_risk = max(abs(entry_price - stop_price), 1e-12)
+    runner_candidates: list[float] = []
+    for marker in measured_move_markers:
+        if marker.direction != direction:
+            continue
+        if marker.projection_start_index > signal_index:
+            continue
+        if signal_index - marker.projection_start_index > 16:
+            continue
+        if direction == "bull":
+            if marker.target_price <= first_target_price + actual_risk * 0.8:
+                continue
+        else:
+            if marker.target_price >= first_target_price - actual_risk * 0.8:
+                continue
+        runner_candidates.append(marker.target_price)
+
+    if runner_candidates:
+        if direction == "bull":
+            return min(runner_candidates)
+        return max(runner_candidates)
+
+    if direction == "bull":
+        return max(first_target_price + actual_risk * 0.8, entry_price + actual_risk * 3.0)
+    return min(first_target_price - actual_risk * 0.8, entry_price - actual_risk * 3.0)

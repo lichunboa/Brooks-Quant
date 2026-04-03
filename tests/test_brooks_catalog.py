@@ -75,11 +75,9 @@ class TestBrooksCatalog(unittest.TestCase):
     def test_strategy_blueprints_include_taifei_mapped_setups(self) -> None:
         names = {blueprint.name for blueprint in STRATEGY_BLUEPRINTS}
         expected = {
-            "收线试驾 / BUYNOW",
-            "逆 1 失败、顺 1 成功",
+            "收线试驾 / 逆 1 失败、顺 1 成功",
             "旗形回调（双重顶底 / 楔形作持续）",
-            "双重顶 / 双重底",
-            "楔形顶 / 楔形底",
+            "双重顶底 / 楔形 / MTR",
             "看衰突破（Fade Breakout in TR）",
             "急赴磁体（Magnet Rush）",
             "区间突破回调",
